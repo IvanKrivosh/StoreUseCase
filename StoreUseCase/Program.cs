@@ -1,10 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace StoreUseCase
 {
@@ -46,6 +41,7 @@ namespace StoreUseCase
 
         public Shop(Warehouse warehouse)
         {
+            Utils.CompareObjectIsNotNull(warehouse, nameof(warehouse));
             _warehouse = warehouse;
         }
 
@@ -54,14 +50,14 @@ namespace StoreUseCase
             return new Cart(this);
         }
 
-        public bool HasEnoughGood(Good good, int quantity)
+        public bool IsAvailableGood(Good good, int quantity)
         {
-            return _warehouse.IsAvailable(good, quantity);
+            return _warehouse.IsAvailableGood(good, quantity);
         }
 
-        public bool TryTakeGood(Good good, int quantity)
+        public void DecreaseGood(Good good, int quantity)
         {
-            return _warehouse.IsAvailable(good, quantity, true);
+            _warehouse.Decrease(good, quantity);
         }
     }
 
@@ -81,33 +77,60 @@ namespace StoreUseCase
 
         public GoodsList()
         {
-            _cells = new List<Cell> ();
+            _cells = new List<Cell>();
         }
 
         public IReadOnlyList<Cell> Cells => _cells;
 
         public void AddGood(Good good, int quantity)
         {
+            VerifyGoodValue(good, quantity);
+
             Cell newCell = new Cell(good, quantity);
+            Cell cell = GetCell(good);
 
-            int cellIndex = GetGoodIndex(good);
-
-            if (cellIndex != -1)
-                _cells[cellIndex].Merge(newCell);
+            if (cell != null)
+                cell.Merge(newCell);
             else
                 _cells.Add(newCell);
         }
 
-        public void ShowGoodsInformation()
+        public bool IsAvailableGood(Good good, int quantity)
         {
-            foreach (Cell cell in _cells)            
-                Console.WriteLine($"{cell.Good.Name}: {cell.Quantity} шт.");            
+            VerifyGoodValue(good, quantity);
+
+            Cell cell = GetCell(good);
+
+            if (cell == null)
+                throw new Exception("Product was not found in store");
+
+            return cell.IsAvailableQuantity(quantity);
         }
 
-        protected int GetGoodIndex(Good good)
+        public void Decrease(Good good, int quantity)
         {
-            return _cells.FindIndex(cell => cell.Good == good);
+            if (IsAvailableGood(good, quantity))
+                GetCell(good).Decrease(quantity);
         }
+
+        public void ShowGoodsInformation()
+        {
+            foreach (Cell cell in Cells)            
+                Console.WriteLine(cell.Information);            
+        }
+
+        public Cell GetCell(Good good)
+        {
+            Utils.CompareObjectIsNotNull(good, nameof(good));
+
+            return _cells.Find(cell => cell.Good == good);
+        }
+
+        private void VerifyGoodValue(Good good, int quantity)
+        {
+            Utils.CompareObjectIsNotNull(good, nameof(good));
+            Utils.CompareIntGreaterZero(quantity, nameof(quantity));
+        }        
     }
 
     class Cart : GoodsList
@@ -116,19 +139,20 @@ namespace StoreUseCase
 
         public Cart(Shop shop)
         {
+            Utils.CompareObjectIsNotNull(shop, nameof(shop));
             _shop = shop;
         }
 
         public void Add(Good good, int quantity)
         {
-            if (_shop.HasEnoughGood(good, quantity))            
+            if (_shop.IsAvailableGood(good, quantity))            
                 AddGood(good, quantity);
         }
 
         public Order Order()
         {
             foreach (Cell cell in Cells)
-                _shop.TryTakeGood(cell.Good, cell.Quantity);
+                _shop.DecreaseGood(cell.Good, cell.Quantity);
 
             return new Order("paylink");
         }
@@ -137,23 +161,8 @@ namespace StoreUseCase
     class Warehouse : GoodsList
     { 
         public void Delive(Good good, int quantity)
-        {
-           AddGood(good, quantity);
-        }
-
-        public bool IsAvailable(Good good, int quantity, bool take = false)
-        {
-            int cellIndex = GetGoodIndex(good);
-
-            if (cellIndex == -1)
-                throw new Exception("Product was not found in store"); 
-
-            if (take)            
-                Cells[cellIndex].Decrease(quantity);            
-            else
-                Cells[cellIndex].CheckQuantity(quantity);
-
-            return true;
+        {            
+            AddGood(good, quantity);
         }
     }
 
@@ -161,7 +170,8 @@ namespace StoreUseCase
     {   
         public Cell(Good good, int quantity)
         {
-            Utils.CheckIntRangeVariable(quantity, nameof(quantity));
+            Utils.CompareObjectIsNotNull(good, nameof(good));
+            Utils.CompareIntGreaterZero(quantity, nameof(quantity));
 
             Good = good;
             Quantity = quantity;
@@ -169,25 +179,29 @@ namespace StoreUseCase
 
         public Good Good { get; private set; }
         public int Quantity { get; private set; }
+        public string Information => $"{Good.Name}: {Quantity} шт.";
 
         public void Merge(Cell cell)
         {
+            Utils.CompareObjectIsNotNull(cell, nameof(cell));
+
             if (Good != cell.Good)
                 throw new Exception("Type of good does not match");
 
             Quantity += cell.Quantity;
         }
 
-        public void CheckQuantity(int quantity)
+        public bool IsAvailableQuantity(int quantity)
         {
-            if (Quantity < quantity)
-                throw new Exception("Invalid quantity");
+            Utils.CompareIntGreaterValue(Quantity, nameof(quantity), quantity, true);
+
+            return true;
         }
 
         public void Decrease(int quantity)
         {
-            CheckQuantity(quantity);
-            Quantity -= quantity;
+            if (IsAvailableQuantity(quantity))
+                Quantity -= quantity;
         }
     }
 
@@ -203,10 +217,21 @@ namespace StoreUseCase
 
     static class Utils
     {
-        static public void CheckIntRangeVariable(int value, string name)
+        public static void CompareIntGreaterValue(int value, string name, int targetValue, bool canBeEqual = false)
         {
-            if (value <= 0)
+            if (value < targetValue || (!canBeEqual && value == targetValue))
                 throw new ArgumentOutOfRangeException(name);
+        }
+
+        public static void CompareIntGreaterZero(int value, string name)
+        {
+            CompareIntGreaterValue(value, name, 0);
+        }
+
+        public static void CompareObjectIsNotNull(object instance, string name)
+        {
+            if (instance == null)
+                throw new ArgumentNullException(name);
         }
     }
 }
